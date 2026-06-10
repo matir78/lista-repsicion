@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { Plus, Check, PackageOpen, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StockItem } from './types';
@@ -44,7 +44,7 @@ export default function App() {
     inputRef.current?.focus();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       handleAddItem();
     }
