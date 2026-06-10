@@ -112,7 +112,7 @@ export default function App() {
               onKeyDown={handleKeyDown}
               placeholder="Ej: Leche descremada"
               className="flex-1 bg-neutral-100 border-none rounded-2xl px-5 py-4 text-lg focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none placeholder:text-neutral-400 min-w-0 w-full resize-none overflow-hidden h-auto"
-              style={{ minHeight: '56px' }}
+              style={{ minHeight: '56px', lineHeight: '15px' }}
               onInput={(e) => {
                 const target = e.target as HTMLTextAreaElement;
                 target.style.height = 'auto';
@@ -169,7 +169,7 @@ export default function App() {
                       onChange={(e) => updateItem(item.id, { name: e.target.value })}
                       className="text-lg font-medium text-neutral-800 bg-transparent border-b-2 border-transparent focus:border-blue-300 outline-none flex-1 min-w-0 transition-colors py-1 resize-none overflow-hidden h-auto"
                       aria-label="Nombre del artículo"
-                      style={{ height: 'auto' }}
+                      style={{ height: 'auto', lineHeight: '15px' }}
                       onInput={(e) => {
                         const target = e.target as HTMLTextAreaElement;
                         target.style.height = 'auto';
