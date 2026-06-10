@@ -1,20 +1,43 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Lista de Reposición
 
-# Run and deploy your AI Studio app
+Una aplicación web moderna, interactiva y responsiva diseñada para gestionar listas de artículos y cantidades a reponer en inventarios o compras.
 
-This contains everything you need to run your app locally.
+## Características
 
-View your app in AI Studio: https://ai.studio/apps/837572ca-436e-41e9-9196-1e2c7cf285dc
+*   **Entrada de Artículos**: Formulario simplificado con campos dedicados para el nombre del artículo y la cantidad.
+*   **Edición Directa (en línea)**: Modifica nombres y cantidades directamente desde la lista interactiva.
+*   **Persistencia Local**: Guarda el estado de la lista en el navegador a través de `localStorage` para que no se pierda al recargar la página.
+*   **Acción de Completar con Deshacer (Undo)**: Remueve artículos completados con animaciones suaves y un aviso emergente que permite deshacer la acción durante 4 segundos.
+*   **Diseño Limpio y Animado**: Desarrollada con animaciones fluidas para transiciones e interacciones del usuario.
 
-## Run Locally
+## Tecnologías Utilizadas
 
-**Prerequisites:**  Node.js
+*   **React 19**
+*   **Vite**
+*   **TypeScript**
+*   **Tailwind CSS v4** (estilos responsivos y modernos)
+*   **Framer Motion** (animaciones e interacciones de lista fluidas)
+*   **Lucide React** (iconografía limpia y minimalista)
 
+## Iniciar Localmente
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Prerrequisitos
+
+Tener instalado **Node.js** y **pnpm** (o npm).
+
+### Pasos para ejecutar
+
+1.  **Instalar dependencias**:
+    ```bash
+    pnpm install
+    ```
+    *(O `npm install` si prefieres usar npm)*
+
+2.  **Iniciar servidor de desarrollo**:
+    ```bash
+    pnpm dev
+    ```
+    *(O `npm run dev`)*
+
+3.  **Ver la aplicación**:
+    Abre tu navegador en la dirección indicada por la consola (generalmente `http://localhost:3000`).
