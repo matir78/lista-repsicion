@@ -19,7 +19,7 @@ export default function App() {
   const [descriptionValue, setDescriptionValue] = useState('');
   const [quantityValue, setQuantityValue] = useState('');
   const [removedItem, setRemovedItem] = useState<{ item: StockItem; index: number; timeoutId?: NodeJS.Timeout } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Save to local storage whenever items change
   useEffect(() => {
@@ -44,8 +44,9 @@ export default function App() {
     inputRef.current?.focus();
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (e.key === 'Enter') {
+      e.preventDefault();
       handleAddItem();
     }
   };
@@ -103,14 +104,20 @@ export default function App() {
         {/* Input Area */}
         <div className="p-4 bg-white border-b border-neutral-100 shadow-sm z-10 sticky top-0 relative">
           <div className="flex gap-2 relative">
-            <input
+            <textarea
               ref={inputRef}
-              type="text"
+              rows={1}
               value={descriptionValue}
               onChange={(e) => setDescriptionValue(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ej: Leche descremada"
-              className="flex-1 bg-neutral-100 border-none rounded-2xl px-5 py-4 text-lg focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none placeholder:text-neutral-400 min-w-0 w-full"
+              className="flex-1 bg-neutral-100 border-none rounded-2xl px-5 py-4 text-lg focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none placeholder:text-neutral-400 min-w-0 w-full resize-none overflow-hidden h-auto"
+              style={{ minHeight: '56px' }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = 'auto';
+                target.style.height = `${target.scrollHeight}px`;
+              }}
               autoFocus
             />
             <div className="bg-neutral-100 rounded-2xl flex items-center px-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white transition-all shrink-0 w-18">
@@ -156,12 +163,30 @@ export default function App() {
                     key={item.id}
                     className="bg-white border border-neutral-200 rounded-2xl p-3 pl-5 shadow-sm flex justify-between items-center gap-3"
                   >
-                    <input
-                      type="text"
+                    <textarea
+                      rows={1}
                       value={item.name || item.text}
                       onChange={(e) => updateItem(item.id, { name: e.target.value })}
-                      className="text-lg font-medium text-neutral-800 bg-transparent border-b-2 border-transparent focus:border-blue-300 outline-none flex-1 min-w-0 transition-colors py-1"
+                      className="text-lg font-medium text-neutral-800 bg-transparent border-b-2 border-transparent focus:border-blue-300 outline-none flex-1 min-w-0 transition-colors py-1 resize-none overflow-hidden h-auto"
                       aria-label="Nombre del artículo"
+                      style={{ height: 'auto' }}
+                      onInput={(e) => {
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = 'auto';
+                        target.style.height = `${target.scrollHeight}px`;
+                      }}
+                      ref={(el) => {
+                        if (el) {
+                          el.style.height = 'auto';
+                          el.style.height = `${el.scrollHeight}px`;
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          (e.target as HTMLTextAreaElement).blur();
+                        }
+                      }}
                     />
                     <div className="bg-blue-50 text-blue-700 font-bold rounded-xl text-sm border border-blue-100 flex items-center px-2 py-1.5 shrink-0 focus-within:ring-2 focus-within:border-blue-300 ring-blue-200 transition-all">
                       <span className="text-blue-400 select-none mr-0.5 ml-1">x</span>
