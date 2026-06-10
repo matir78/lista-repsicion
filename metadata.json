@@ -2,5 +2,5 @@
   "name": "Lista de Reposición",
   "description": "Aplicación de lista de tareas diseñada para reponedores de supermercado para gestionar productos y cantidades a reponer.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
