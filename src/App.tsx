@@ -1,7 +1,19 @@
-import { useState, useEffect, useRef, KeyboardEvent } from 'react';
-import { Plus, Check, PackageOpen, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useRef, useDeferredValue, KeyboardEvent } from 'react';
+import { Plus, Check, PackageOpen, RotateCcw, Search, Barcode } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { StockItem } from './types';
+import { CatalogProduct, CatalogResponse, StockItem } from './types';
+
+type SearchableProduct = CatalogProduct & { searchText: string; descriptionSearch: string };
+
+const driveCatalogUrl = 'https://script.google.com/macros/s/AKfycbzGtfW9XfGlPKtY_Cy90-g2XgQO1S0mVQ8wSs0uMaP2bs_smU4Mbis8Tn4nsS505-M/exec';
+const localCatalogUrl = `${import.meta.env.BASE_URL}data/articles.json`;
+
+const normalizeSearch = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 
 export default function App() {
   const [items, setItems] = useState<StockItem[]>(() => {
@@ -18,13 +30,81 @@ export default function App() {
   
   const [descriptionValue, setDescriptionValue] = useState('');
   const [quantityValue, setQuantityValue] = useState('');
+  const [catalog, setCatalog] = useState<SearchableProduct[]>([]);
+  const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [catalogSource, setCatalogSource] = useState<'drive' | 'local'>('drive');
+  const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [removedItem, setRemovedItem] = useState<{ item: StockItem; index: number; timeoutId?: NodeJS.Timeout } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const quantityRef = useRef<HTMLInputElement>(null);
+  const deferredDescription = useDeferredValue(descriptionValue);
+
+  const query = normalizeSearch(deferredDescription);
+  const suggestions = query.length < 2
+    ? []
+    : catalog
+        .filter((product) => query.split(/\s+/).every((token) => product.searchText.includes(token)))
+        .sort((left, right) => {
+          const leftRank = left.descriptionSearch.startsWith(query) ? 0 : left.articleCode.toLowerCase().startsWith(query) || left.barcode?.startsWith(query) ? 1 : 2;
+          const rightRank = right.descriptionSearch.startsWith(query) ? 0 : right.articleCode.toLowerCase().startsWith(query) || right.barcode?.startsWith(query) ? 1 : 2;
+          return leftRank - rightRank || left.description.localeCompare(right.description, 'es');
+        })
+        .slice(0, 8);
 
   // Save to local storage whenever items change
   useEffect(() => {
     localStorage.setItem('restock_items', JSON.stringify(items));
   }, [items]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const configuredCatalogUrl = import.meta.env.VITE_CATALOG_URL || driveCatalogUrl;
+
+    const loadCatalog = async () => {
+      const urls = configuredCatalogUrl === localCatalogUrl
+        ? [localCatalogUrl]
+        : [configuredCatalogUrl, localCatalogUrl];
+
+      for (const url of urls) {
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          if (!response.ok) throw new Error(`Catalog request failed: ${response.status}`);
+          const data = await response.json() as CatalogResponse;
+          if (data.meta.schemaVersion !== 1 || data.meta.totalRecords !== data.products.length) {
+            throw new Error('Invalid catalog contract');
+          }
+          const seenProducts = new Set<string>();
+          setCatalog(data.products.filter((product) => {
+            const key = `${product.articleCode}\u0000${product.barcode ?? ''}\u0000${product.description}`;
+            if (seenProducts.has(key)) return false;
+            seenProducts.add(key);
+            return true;
+          }).map((product) => {
+            const descriptionSearch = normalizeSearch(product.description);
+            const codeWithoutLeadingZeros = product.articleCode.replace(/^0+/, '');
+            return {
+              ...product,
+              descriptionSearch,
+              searchText: `${descriptionSearch} ${product.articleCode.toLowerCase()} ${codeWithoutLeadingZeros.toLowerCase()} ${product.barcode ?? ''}`,
+            };
+          }));
+          setCatalogSource(url === localCatalogUrl ? 'local' : 'drive');
+          setCatalogStatus('ready');
+          return;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        }
+      }
+      throw new Error('No catalog source is available');
+    };
+
+    loadCatalog().catch((error) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setCatalogStatus('error');
+    });
+    return () => controller.abort();
+  }, []);
 
   const handleAddItem = () => {
     const trimmedDesc = descriptionValue.trim();
@@ -35,20 +115,49 @@ export default function App() {
       text: `${trimmedDesc}${quantityValue ? ` x ${quantityValue}` : ''}`,
       name: trimmedDesc,
       quantity: quantityValue.trim() || undefined,
+      articleCode: selectedProduct?.articleCode,
+      barcode: selectedProduct?.barcode ?? undefined,
       createdAt: Date.now(),
     };
 
     setItems((prev) => [newItem, ...prev]);
     setDescriptionValue('');
     setQuantityValue('');
+    setSelectedProduct(null);
+    setShowSuggestions(false);
     inputRef.current?.focus();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+    if (e.currentTarget === inputRef.current && showSuggestions && suggestions.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const direction = e.key === 'ArrowDown' ? 1 : -1;
+        setActiveSuggestion((current) => (current + direction + suggestions.length) % suggestions.length);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setShowSuggestions(false);
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        selectProduct(suggestions[activeSuggestion] ?? suggestions[0]);
+        return;
+      }
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
       handleAddItem();
     }
+  };
+
+  const selectProduct = (product: CatalogProduct) => {
+    setDescriptionValue(product.description);
+    setSelectedProduct(product);
+    setShowSuggestions(false);
+    setActiveSuggestion(0);
+    requestAnimationFrame(() => quantityRef.current?.focus());
   };
 
   const handleCompleteItem = (id: string) => {
@@ -108,9 +217,16 @@ export default function App() {
               ref={inputRef}
               rows={1}
               value={descriptionValue}
-              onChange={(e) => setDescriptionValue(e.target.value)}
+              onChange={(e) => {
+                setDescriptionValue(e.target.value);
+                setSelectedProduct(null);
+                setShowSuggestions(true);
+                setActiveSuggestion(0);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => window.setTimeout(() => setShowSuggestions(false), 120)}
               onKeyDown={handleKeyDown}
-              placeholder="Ej: Leche descremada"
+              placeholder="Buscar artículo o código"
               className="flex-1 bg-neutral-100 border-none rounded-2xl px-5 py-4 text-lg focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none placeholder:text-neutral-400 min-w-0 w-full resize-none overflow-hidden h-auto"
               style={{ minHeight: '56px', lineHeight: '15px' }}
               onInput={(e) => {
@@ -119,9 +235,15 @@ export default function App() {
                 target.style.height = `${target.scrollHeight}px`;
               }}
               autoFocus
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={showSuggestions && suggestions.length > 0}
+              aria-controls="catalog-suggestions"
+              aria-activedescendant={showSuggestions && suggestions.length ? `catalog-option-${activeSuggestion}` : undefined}
             />
             <div className="bg-neutral-100 rounded-2xl flex items-center px-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white transition-all shrink-0 w-18">
               <input
+                ref={quantityRef}
                 type="number"
                 value={quantityValue}
                 onChange={(e) => setQuantityValue(e.target.value)}
@@ -139,7 +261,46 @@ export default function App() {
             >
               <Plus size={28} strokeWidth={2.5} />
             </button>
+            {showSuggestions && query.length >= 2 && (
+              <div
+                id="catalog-suggestions"
+                role="listbox"
+                className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 max-h-80 overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-2xl"
+              >
+                {suggestions.length ? suggestions.map((product, index) => (
+                  <button
+                    id={`catalog-option-${index}`}
+                    key={`${product.articleCode}-${product.barcode ?? ''}`}
+                    type="button"
+                    role="option"
+                    aria-selected={activeSuggestion === index}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSuggestion(index)}
+                    onClick={() => selectProduct(product)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${activeSuggestion === index ? 'bg-blue-50' : 'hover:bg-neutral-50'}`}
+                  >
+                    <Search size={18} className="shrink-0 text-blue-500" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold text-neutral-900">{product.description}</span>
+                      <span className="block truncate text-xs text-neutral-500">Art. {product.articleCode}</span>
+                    </span>
+                    {product.barcode && (
+                      <span className="hidden items-center gap-1 text-xs text-neutral-400 sm:flex">
+                        <Barcode size={14} /> {product.barcode}
+                      </span>
+                    )}
+                  </button>
+                )) : (
+                  <p className="px-4 py-5 text-center text-sm text-neutral-500">Sin coincidencias. Puedes agregarlo manualmente.</p>
+                )}
+              </div>
+            )}
           </div>
+          <p className={`mt-2 px-1 text-xs ${catalogStatus === 'error' ? 'text-amber-700' : 'text-neutral-400'}`}>
+            {catalogStatus === 'loading' && 'Cargando catálogo…'}
+            {catalogStatus === 'ready' && `${catalog.length.toLocaleString('es-UY')} artículos · ${catalogSource === 'drive' ? 'actualizado desde Drive' : 'copia local'}`}
+            {catalogStatus === 'error' && 'No se pudo cargar el catálogo. La carga manual sigue disponible.'}
+          </p>
         </div>
 
         {/* List Area */}
@@ -163,31 +324,34 @@ export default function App() {
                     key={item.id}
                     className="bg-white border border-neutral-200 rounded-2xl p-3 pl-5 shadow-sm flex justify-between items-center gap-3"
                   >
-                    <textarea
-                      rows={1}
-                      value={item.name || item.text}
-                      onChange={(e) => updateItem(item.id, { name: e.target.value })}
-                      className="text-lg font-medium text-neutral-800 bg-transparent border-b-2 border-transparent focus:border-blue-300 outline-none flex-1 min-w-0 transition-colors py-1 resize-none overflow-hidden h-auto"
-                      aria-label="Nombre del artículo"
-                      style={{ height: 'auto', lineHeight: '15px' }}
-                      onInput={(e) => {
-                        const target = e.target as HTMLTextAreaElement;
-                        target.style.height = 'auto';
-                        target.style.height = `${target.scrollHeight}px`;
-                      }}
-                      ref={(el) => {
-                        if (el) {
-                          el.style.height = 'auto';
-                          el.style.height = `${el.scrollHeight}px`;
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          (e.target as HTMLTextAreaElement).blur();
-                        }
-                      }}
-                    />
+                    <div className="min-w-0 flex-1">
+                      <textarea
+                        rows={1}
+                        value={item.name || item.text}
+                        onChange={(e) => updateItem(item.id, { name: e.target.value })}
+                        className="w-full text-lg font-medium text-neutral-800 bg-transparent border-b-2 border-transparent focus:border-blue-300 outline-none min-w-0 transition-colors py-1 resize-none overflow-hidden h-auto"
+                        aria-label="Nombre del artículo"
+                        style={{ height: 'auto', lineHeight: '15px' }}
+                        onInput={(e) => {
+                          const target = e.target as HTMLTextAreaElement;
+                          target.style.height = 'auto';
+                          target.style.height = `${target.scrollHeight}px`;
+                        }}
+                        ref={(el) => {
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = `${el.scrollHeight}px`;
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            (e.target as HTMLTextAreaElement).blur();
+                          }
+                        }}
+                      />
+                      {item.articleCode && <p className="truncate text-xs text-neutral-400">Art. {item.articleCode}</p>}
+                    </div>
                     <div className="bg-blue-50 text-blue-700 font-bold rounded-xl text-sm border border-blue-100 flex items-center px-2 py-1.5 shrink-0 focus-within:ring-2 focus-within:border-blue-300 ring-blue-200 transition-all">
                       <span className="text-blue-400 select-none mr-0.5 ml-1">x</span>
                       <input

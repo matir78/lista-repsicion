@@ -4,5 +4,8 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.xlsx
+*.tmp
+__pycache__/
 .env*
 !.env.example
