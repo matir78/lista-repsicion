@@ -320,22 +320,20 @@ export default function App() {
 
   const handleOutOfStock = async (item: RemoteTask) => {
     if (item.syncStatus || pendingTasksRef.current.has(item.id) || item.status === 'SIN_STOCK_DEPOSITO') return;
-    const optimisticTask = { ...item, status: 'SIN_STOCK_DEPOSITO', syncStatus: 'pending' as const };
-    pendingTasksRef.current.set(item.id, optimisticTask);
-    setItems((current) => current.map((candidate) => candidate.id === item.id ? optimisticTask : candidate));
+    pendingTasksRef.current.set(item.id, null);
+    setItems((current) => current.filter((candidate) => candidate.id !== item.id));
     setOperationError('');
     try {
-      const response = await operationsApi.markOutOfStock(item.id, item.version, session.user.id);
+      await operationsApi.markOutOfStock(item.id, item.version, session.user.id);
       pendingTasksRef.current.delete(item.id);
-      setItems((current) => current.map((candidate) => candidate.id === item.id ? response.task : candidate));
       refreshTasks(true);
     } catch (caught) {
       pendingTasksRef.current.delete(item.id);
       handleApiFailure(caught);
       if (caught instanceof OperationsApiError && caught.code === 'VERSION_CONFLICT') {
         refreshTasks();
-      } else {
-        setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate));
+      } else if (selectedStoreIdRef.current === item.localId) {
+        setItems((current) => current.some((candidate) => candidate.id === item.id) ? current : [item, ...current]);
       }
     }
   };
@@ -564,19 +562,14 @@ export default function App() {
                            <span>por {item.createdBy}</span>
                             {item.syncStatus === 'pending' && <span className="inline-flex items-center gap-1 font-semibold text-blue-600"><RefreshCw size={11} className="animate-spin" /> Guardando</span>}
                           </div>
-                          {item.status === 'SIN_STOCK_DEPOSITO' && <p className="mt-2 inline-flex rounded-lg bg-red-50 px-2 py-1 text-xs font-bold text-red-700">Sin stock en deposito</p>}
                         </div>
                         <div className="flex shrink-0 items-center rounded-xl border border-blue-100 bg-blue-50 px-2 py-1.5 text-sm font-bold text-blue-700"><span className="mr-0.5 text-blue-400">x</span>{item.quantity || '1'}</div>
-                        {item.status !== 'SIN_STOCK_DEPOSITO' && (
-                          <button onClick={() => handleOutOfStock(item)} disabled={item.syncStatus === 'pending'} className="shrink-0 rounded-xl bg-red-50 p-3 text-red-700 transition-all hover:bg-red-100 active:scale-90 disabled:opacity-50" aria-label={`Marcar ${item.name} sin stock`}>
-                            <PackageX size={26} />
-                          </button>
-                        )}
-                        {item.status !== 'SIN_STOCK_DEPOSITO' && (
-                          <button onClick={() => handleCompleteItem(item)} disabled={item.syncStatus === 'pending'} className="ml-1 shrink-0 rounded-xl bg-green-100 p-3 text-green-700 transition-all hover:bg-green-200 active:scale-90 disabled:opacity-50" aria-label={`Marcar ${item.name} como repuesto`}>
-                            <Check size={28} strokeWidth={3} />
-                          </button>
-                        )}
+                        <button onClick={() => handleOutOfStock(item)} disabled={item.syncStatus === 'pending'} className="shrink-0 rounded-xl bg-red-50 p-3 text-red-700 transition-all hover:bg-red-100 active:scale-90 disabled:opacity-50" aria-label={`Marcar ${item.name} sin stock`}>
+                          <PackageX size={26} />
+                        </button>
+                        <button onClick={() => handleCompleteItem(item)} disabled={item.syncStatus === 'pending'} className="ml-1 shrink-0 rounded-xl bg-green-100 p-3 text-green-700 transition-all hover:bg-green-200 active:scale-90 disabled:opacity-50" aria-label={`Marcar ${item.name} como repuesto`}>
+                          <Check size={28} strokeWidth={3} />
+                        </button>
                       </motion.li>
                     ))}
                   </AnimatePresence>

@@ -271,7 +271,7 @@ function listTasks_(context, payload) {
   const store = requireStoreAccess_(context.user, String(payload.localId || ''));
   const usersById = {};
   readTable_('usuarios').records.forEach((user) => { usersById[user.id] = user.nombre; });
-  const closedStates = ['COMPLETADA', 'VERIFICADA', 'CANCELADA'];
+  const closedStates = ['COMPLETADA', 'VERIFICADA', 'CANCELADA', 'SIN_STOCK_DEPOSITO', 'PENDIENTE_COMPRA'];
   const tasks = readTable_('tareas_reposicion').records
     .filter((task) => task.local_id === store.id && closedStates.indexOf(task.estado) === -1)
     .sort((left, right) => dateMillis_(right.creado_en) - dateMillis_(left.creado_en))
