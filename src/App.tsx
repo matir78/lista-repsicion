@@ -3,7 +3,7 @@ import { Plus, Check, PackageOpen, RotateCcw, Search, Barcode } from 'lucide-rea
 import { motion, AnimatePresence } from 'motion/react';
 import { CatalogProduct, CatalogResponse, StockItem } from './types';
 
-type SearchableProduct = CatalogProduct & { searchText: string; descriptionSearch: string };
+type SearchableProduct = CatalogProduct & { searchText: string; compactDescriptionSearch: string; descriptionSearch: string };
 
 const driveCatalogUrl = 'https://script.google.com/macros/s/AKfycbzGtfW9XfGlPKtY_Cy90-g2XgQO1S0mVQ8wSs0uMaP2bs_smU4Mbis8Tn4nsS505-M/exec';
 const localCatalogUrl = `${import.meta.env.BASE_URL}data/articles.json`;
@@ -14,6 +14,8 @@ const normalizeSearch = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+
+const formatArticleCode = (value: string) => value.replace(/^0+/, '') || '0';
 
 export default function App() {
   const [items, setItems] = useState<StockItem[]>(() => {
@@ -42,10 +44,14 @@ export default function App() {
   const deferredDescription = useDeferredValue(descriptionValue);
 
   const query = normalizeSearch(deferredDescription);
+  const compactQuery = query.replace(/\s+/g, '');
   const suggestions = query.length < 2
     ? []
     : catalog
-        .filter((product) => query.split(/\s+/).every((token) => product.searchText.includes(token)))
+        .filter((product) => (
+          query.split(/\s+/).every((token) => product.searchText.includes(token))
+          || product.compactDescriptionSearch.includes(compactQuery)
+        ))
         .sort((left, right) => {
           const leftRank = left.descriptionSearch.startsWith(query) ? 0 : left.articleCode.toLowerCase().startsWith(query) || left.barcode?.startsWith(query) ? 1 : 2;
           const rightRank = right.descriptionSearch.startsWith(query) ? 0 : right.articleCode.toLowerCase().startsWith(query) || right.barcode?.startsWith(query) ? 1 : 2;
@@ -86,6 +92,7 @@ export default function App() {
             const codeWithoutLeadingZeros = product.articleCode.replace(/^0+/, '');
             return {
               ...product,
+              compactDescriptionSearch: descriptionSearch.replace(/\s+/g, ''),
               descriptionSearch,
               searchText: `${descriptionSearch} ${product.articleCode.toLowerCase()} ${codeWithoutLeadingZeros.toLowerCase()} ${product.barcode ?? ''}`,
             };
@@ -277,18 +284,20 @@ export default function App() {
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setActiveSuggestion(index)}
                     onClick={() => selectProduct(product)}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${activeSuggestion === index ? 'bg-blue-50' : 'hover:bg-neutral-50'}`}
+                    className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left ${activeSuggestion === index ? 'bg-blue-50' : 'hover:bg-neutral-50'}`}
                   >
-                    <Search size={18} className="shrink-0 text-blue-500" />
+                    <Search size={18} className="mt-0.5 shrink-0 text-blue-500" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold text-neutral-900">{product.description}</span>
-                      <span className="block truncate text-xs text-neutral-500">Art. {product.articleCode}</span>
-                    </span>
-                    {product.barcode && (
-                      <span className="hidden items-center gap-1 text-xs text-neutral-400 sm:flex">
-                        <Barcode size={14} /> {product.barcode}
+                      <span className="block font-semibold leading-snug text-neutral-900">{product.description}</span>
+                      <span className="mt-1 flex items-center justify-between gap-3">
+                        {product.barcode && (
+                          <span className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold text-neutral-600">
+                            <Barcode size={15} className="shrink-0" /> {product.barcode}
+                          </span>
+                        )}
+                        <span className="ml-auto shrink-0 text-xs text-neutral-400">Art. {formatArticleCode(product.articleCode)}</span>
                       </span>
-                    )}
+                    </span>
                   </button>
                 )) : (
                   <p className="px-4 py-5 text-center text-sm text-neutral-500">Sin coincidencias. Puedes agregarlo manualmente.</p>
@@ -350,7 +359,12 @@ export default function App() {
                           }
                         }}
                       />
-                      {item.articleCode && <p className="truncate text-xs text-neutral-400">Art. {item.articleCode}</p>}
+                      {item.barcode && (
+                        <p className="flex items-center gap-1 truncate text-sm font-semibold text-neutral-600">
+                          <Barcode size={15} className="shrink-0" /> {item.barcode}
+                        </p>
+                      )}
+                      {item.articleCode && <p className="truncate text-xs text-neutral-400">Art. {formatArticleCode(item.articleCode)}</p>}
                     </div>
                     <div className="bg-blue-50 text-blue-700 font-bold rounded-xl text-sm border border-blue-100 flex items-center px-2 py-1.5 shrink-0 focus-within:ring-2 focus-within:border-blue-300 ring-blue-200 transition-all">
                       <span className="text-blue-400 select-none mr-0.5 ml-1">x</span>
