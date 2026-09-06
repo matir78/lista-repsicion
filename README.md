@@ -119,6 +119,15 @@ El botón de gráfico abre una sección separada de la lista de reposición:
 
 - `SUPERADMIN` consulta todos los locales o uno específico.
 - `ENCARGADO` y `ADMINISTRADOR` consultan únicamente sus locales asignados.
-- `REPONEDOR` y `COMPRADOR` no acceden al reporte de actividad laboral.
+- `REPONEDOR` no accede al reporte de actividad laboral.
 
 El reporte permite filtrar hasta 31 días por local y funcionario. Muestra tareas registradas y completadas, incidentes sin stock, tareas abiertas, compras pendientes, tiempo medio de resolución, actividad por funcionario y cronología de eventos. Las métricas describen actividad registrada y observaciones de stock; no representan ventas, horas trabajadas ni inventario contable.
+
+## Flujo de compras
+
+Cuando un funcionario informa falta de stock en depósito, se crea automáticamente una solicitud de compra `PENDIENTE` y la tarea desaparece de la lista de reposición. El botón del carrito muestra las compras activas del local:
+
+- **Marcar pedida**: `ENCARGADO`, `ADMINISTRADOR` y `SUPERADMIN` del local. La compra pasa a `PEDIDA`.
+- **Recibir**: `REPONEDOR`, `ENCARGADO`, `ADMINISTRADOR` y `SUPERADMIN` del local. La compra pasa a `RECIBIDA`, se registra la recepción y la tarea original vuelve a la lista de reposición en estado `PENDIENTE` para que el reponedor la reponga.
+
+El reponedor no compra: solo recepciona mercadería y marca faltantes.

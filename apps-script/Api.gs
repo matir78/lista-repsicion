@@ -40,6 +40,9 @@ function dispatchApiAction_(action, payload, token, requestId) {
     'tasks.create': (context) => createTask_(context, payload, requestId),
     'tasks.complete': (context) => completeTask_(context, payload, requestId),
     'tasks.outOfStock': (context) => markTaskOutOfStock_(context, payload, requestId),
+    'purchases.list': (context) => listPendingPurchases_(context, payload),
+    'purchases.order': (context) => orderPurchase_(context, payload, requestId),
+    'purchases.receive': (context) => receivePurchase_(context, payload, requestId),
     'reports.supervision': (context) => supervisionReport_(context, payload),
     'admin.users.list': (context) => listUsers_(context),
     'admin.users.create': (context) => createUser_(context, payload, requestId),
@@ -48,7 +51,7 @@ function dispatchApiAction_(action, payload, token, requestId) {
     'admin.memberships.assign': (context) => assignMembership_(context, payload, requestId),
   };
   if (!actions[action]) throw apiError_('UNKNOWN_ACTION', 'Accion no reconocida.');
-  const readActions = ['session.get', 'tasks.list', 'reports.supervision', 'admin.users.list'];
+  const readActions = ['session.get', 'tasks.list', 'purchases.list', 'reports.supervision', 'admin.users.list'];
   if (readActions.indexOf(action) !== -1) return actions[action](requireSession_(token));
   return withApiLock_(() => actions[action](requireSession_(token)));
 }
@@ -265,6 +268,149 @@ function requireExpectedActor_(context, payload) {
   if (String(payload.actorId || '') !== context.user.id) {
     throw apiError_('SESSION_IDENTITY_CHANGED', 'La identidad de esta ventana cambio. Vuelve a iniciar sesion.');
   }
+}
+
+function requireStoreRole_(user, storeId, roles) {
+  const store = requireStoreAccess_(user, storeId);
+  if (roles.indexOf(store.role) === -1) {
+    throw apiError_('FORBIDDEN', 'No tienes permisos para esta operacion en el local.');
+  }
+  return store;
+}
+
+function listPendingPurchases_(context, payload) {
+  const store = requireStoreAccess_(context.user, String(payload.localId || ''));
+  const activeStates = ['PENDIENTE', 'APROBADA', 'PEDIDA', 'EN_TRANSITO'];
+  const purchases = readTable_('solicitudes_compra').records
+    .filter((request) => request.local_id === store.id && activeStates.indexOf(request.estado) !== -1)
+    .sort((left, right) => dateMillis_(right.solicitado_en) - dateMillis_(left.solicitado_en))
+    .map((request) => publicPurchase_(request));
+  return { purchases, store };
+}
+
+function publicPurchase_(request) {
+  const usersById = userNamesById_();
+  return {
+    purchaseRequestId: request.id,
+    taskId: request.tarea_id,
+    localId: request.local_id,
+    description: request.descripcion_snapshot,
+    articleCode: request.articulo_codigo === '' ? null : String(request.articulo_codigo),
+    barcode: request.codigo_barra === '' ? null : String(request.codigo_barra),
+    quantity: request.cantidad_solicitada === '' ? null : String(request.cantidad_solicitada),
+    unit: request.unidad || '',
+    status: request.estado,
+    priority: request.prioridad,
+    supplier: request.proveedor || '',
+    requestedBy: usersById[request.solicitado_por] || 'Usuario',
+    requestedAt: dateIso_(request.solicitado_en),
+    canOrder: ['PENDIENTE', 'APROBADA'].indexOf(request.estado) !== -1,
+    canReceive: ['PEDIDA', 'EN_TRANSITO'].indexOf(request.estado) !== -1,
+  };
+}
+
+function orderPurchase_(context, payload, requestId) {
+  requireExpectedActor_(context, payload);
+  const store = requireStoreRole_(context.user, String(payload.localId || ''), ['ENCARGADO', 'ADMINISTRADOR', 'SUPERADMIN']);
+  const purchases = readTable_('solicitudes_compra');
+  const request = purchases.records.find((record) => record.id === String(payload.purchaseRequestId || ''));
+  if (!request || request.local_id !== store.id) throw apiError_('PURCHASE_NOT_FOUND', 'La solicitud de compra no existe.');
+  if (['PEDIDA', 'EN_TRANSITO', 'RECIBIDA', 'CANCELADA'].indexOf(request.estado) !== -1) {
+    return { purchase: publicPurchase_(request), alreadyOrdered: true };
+  }
+  if (request.estado !== 'PENDIENTE' && request.estado !== 'APROBADA') {
+    throw apiError_('INVALID_PURCHASE_STATE', 'La compra no puede pedirse en su estado actual.');
+  }
+
+  const now = new Date();
+  const updates = {
+    estado: 'PEDIDA',
+    asignado_a: context.user.id,
+    actualizado_en: now,
+  };
+  updateTableRow_(purchases.sheet, purchases.headers, request._row, updates);
+  const ordered = { ...request, ...updates };
+  appendAudit_({
+    request_id: requestId,
+    usuario_id: context.user.id,
+    local_id: store.id,
+    accion: 'PEDIR_COMPRA',
+    entidad: 'solicitud_compra',
+    entidad_id: request.id,
+    antes_json: JSON.stringify({ estado: request.estado }),
+    despues_json: JSON.stringify({ estado: 'PEDIDA' }),
+    resultado: 'EXITO',
+  });
+  return { purchase: publicPurchase_(ordered) };
+}
+
+function receivePurchase_(context, payload, requestId) {
+  requireExpectedActor_(context, payload);
+  const store = requireStoreRole_(context.user, String(payload.localId || ''), ['REPONEDOR', 'ENCARGADO', 'ADMINISTRADOR', 'SUPERADMIN']);
+  const purchases = readTable_('solicitudes_compra');
+  const request = purchases.records.find((record) => record.id === String(payload.purchaseRequestId || ''));
+  if (!request || request.local_id !== store.id) throw apiError_('PURCHASE_NOT_FOUND', 'La solicitud de compra no existe.');
+  if (request.estado === 'RECIBIDA') return { purchase: publicPurchase_(request), alreadyReceived: true };
+  if (['PENDIENTE', 'APROBADA'].indexOf(request.estado) !== -1) {
+    throw apiError_('PURCHASE_NOT_ORDERED', 'La compra todavia no fue pedida.');
+  }
+  if (request.estado === 'CANCELADA') throw apiError_('PURCHASE_CANCELLED', 'La compra fue cancelada.');
+
+  const now = new Date();
+  const receivedQuantity = optionalQuantity_(payload.quantity === undefined ? request.cantidad_solicitada : payload.quantity);
+  updateTableRow_(purchases.sheet, purchases.headers, request._row, {
+    estado: 'RECIBIDA',
+    actualizado_en: now,
+  });
+  appendDatabaseRecord_(getDatabaseSpreadsheet_().getSheetByName('recepciones_compra'), {
+    id: Utilities.getUuid(),
+    solicitud_id: request.id,
+    local_id: store.id,
+    articulo_codigo: request.articulo_codigo || '',
+    codigo_barra: request.codigo_barra || '',
+    descripcion_snapshot: request.descripcion_snapshot,
+    cantidad_recibida: receivedQuantity,
+    unidad: request.unidad || '',
+    recibido_por: context.user.id,
+    recibido_en: now,
+    documento_referencia: optionalText_(payload.reference, 80),
+    notas: '',
+  });
+
+  const tasks = readTable_('tareas_reposicion');
+  const task = tasks.records.find((record) => record.id === request.tarea_id);
+  if (task && ['SIN_STOCK_DEPOSITO', 'PENDIENTE_COMPRA'].indexOf(task.estado) !== -1) {
+    const currentVersion = Number(task.version || 1);
+    updateTableRow_(tasks.sheet, tasks.headers, task._row, {
+      estado: 'PENDIENTE',
+      version: currentVersion + 1,
+      actualizado_en: now,
+    });
+    appendDatabaseRecord_(getDatabaseSpreadsheet_().getSheetByName('eventos_reposicion'), {
+      id: Utilities.getUuid(),
+      tarea_id: task.id,
+      local_id: task.local_id,
+      usuario_id: context.user.id,
+      tipo_evento: 'MERCADERIA_RECIBIDA',
+      estado_anterior: task.estado,
+      estado_nuevo: 'PENDIENTE',
+      cantidad: receivedQuantity,
+      ocurrido_en: now,
+    });
+  }
+
+  appendAudit_({
+    request_id: requestId,
+    usuario_id: context.user.id,
+    local_id: store.id,
+    accion: 'RECIBIR_COMPRA',
+    entidad: 'solicitud_compra',
+    entidad_id: request.id,
+    antes_json: JSON.stringify({ estado: request.estado }),
+    despues_json: JSON.stringify({ estado: 'RECIBIDA' }),
+    resultado: 'EXITO',
+  });
+  return { purchase: publicPurchase_({ ...request, estado: 'RECIBIDA', actualizado_en: now }) };
 }
 
 function listTasks_(context, payload) {
@@ -706,7 +852,7 @@ function markTaskOutOfStock_(context, payload, requestId) {
 
   const expectedVersion = Number(payload.expectedVersion);
   const currentVersion = Number(task.version || 1);
-  if (task.estado === 'SIN_STOCK_DEPOSITO') {
+  if (['SIN_STOCK_DEPOSITO', 'PENDIENTE_COMPRA'].indexOf(task.estado) !== -1) {
     const purchaseRequestCreated = ensureOutOfStockRecords_(task, context.user.id, requestId, new Date());
     return { task: publicTask_(task, userNamesById_()), alreadyMarked: true, purchaseRequestCreated };
   }
@@ -718,14 +864,23 @@ function markTaskOutOfStock_(context, payload, requestId) {
   }
 
   const now = new Date();
+  const purchaseRequestCreated = ensureOutOfStockRecords_(task, context.user.id, requestId, now);
   const updates = {
-    estado: 'SIN_STOCK_DEPOSITO',
+    estado: 'PENDIENTE_COMPRA',
     version: currentVersion + 1,
     actualizado_en: now,
   };
-  const purchaseRequestCreated = ensureOutOfStockRecords_(task, context.user.id, requestId, now);
   updateTableRow_(tasks.sheet, tasks.headers, task._row, updates);
-  ensureOutOfStockRecords_({ ...task, ...updates }, context.user.id, requestId, now);
+  appendDatabaseRecord_(getDatabaseSpreadsheet_().getSheetByName('eventos_reposicion'), {
+    id: Utilities.getUuid(),
+    tarea_id: task.id,
+    local_id: task.local_id,
+    usuario_id: context.user.id,
+    tipo_evento: 'SIN_STOCK_DEPOSITO',
+    estado_anterior: task.estado,
+    estado_nuevo: 'PENDIENTE_COMPRA',
+    ocurrido_en: now,
+  });
 
   return {
     task: publicTask_({ ...task, ...updates }, userNamesById_()),
@@ -757,33 +912,16 @@ function ensureOutOfStockRecords_(task, userId, requestId, now) {
     });
   }
 
-  const events = readTable_('eventos_reposicion');
-  if (!events.records.some((event) => event.tarea_id === task.id && event.tipo_evento === 'SIN_STOCK_DEPOSITO')) {
-    appendDatabaseRecord_(events.sheet, {
-      id: Utilities.getUuid(),
-      tarea_id: task.id,
-      local_id: task.local_id,
-      usuario_id: userId,
-      tipo_evento: 'SIN_STOCK_DEPOSITO',
-      estado_anterior: task.estado === 'SIN_STOCK_DEPOSITO' ? '' : task.estado,
-      estado_nuevo: 'SIN_STOCK_DEPOSITO',
-      ocurrido_en: now,
-    });
-  }
-
-  const audit = readTable_('auditoria');
-  if (!audit.records.some((entry) => entry.entidad_id === task.id && entry.accion === 'INFORMAR_SIN_STOCK' && entry.resultado === 'EXITO')) {
-    appendAudit_({
-      request_id: requestId,
-      usuario_id: userId,
-      local_id: task.local_id,
-      accion: 'INFORMAR_SIN_STOCK',
-      entidad: 'tarea_reposicion',
-      entidad_id: task.id,
-      despues_json: JSON.stringify({ estado: 'SIN_STOCK_DEPOSITO' }),
-      resultado: 'EXITO',
-    });
-  }
+  appendAudit_({
+    request_id: requestId,
+    usuario_id: userId,
+    local_id: task.local_id,
+    accion: 'INFORMAR_SIN_STOCK',
+    entidad: 'tarea_reposicion',
+    entidad_id: task.id,
+    despues_json: JSON.stringify({ estado: 'PENDIENTE_COMPRA' }),
+    resultado: 'EXITO',
+  });
   return !existingRequest;
 }
 
@@ -808,7 +946,7 @@ function createUser_(context, payload, requestId) {
   const cedula = validateCedula_(payload.cedula);
   if (findUserByCedula_(cedula)) throw apiError_('DUPLICATE_USER', 'Ya existe un usuario con esa cedula.');
   if (payload.storeId) {
-    const allowedRoles = ['REPONEDOR', 'ENCARGADO', 'COMPRADOR', 'ADMINISTRADOR'];
+    const allowedRoles = ['REPONEDOR', 'ENCARGADO', 'ADMINISTRADOR'];
     if (allowedRoles.indexOf(String(payload.role || '').toUpperCase()) === -1) {
       throw apiError_('INVALID_ROLE', 'Rol local invalido.');
     }
@@ -925,7 +1063,7 @@ function assignMembership_(context, payload, requestId) {
   const userId = String(payload.userId || '');
   const storeId = String(payload.storeId || '');
   const role = String(payload.role || '').toUpperCase();
-  const allowedRoles = ['REPONEDOR', 'ENCARGADO', 'COMPRADOR', 'ADMINISTRADOR'];
+  const allowedRoles = ['REPONEDOR', 'ENCARGADO', 'ADMINISTRADOR'];
   if (allowedRoles.indexOf(role) === -1) throw apiError_('INVALID_ROLE', 'Rol local invalido.');
   if (!readTable_('usuarios').records.some((user) => user.id === userId)) {
     throw apiError_('USER_NOT_FOUND', 'Usuario inexistente.');

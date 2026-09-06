@@ -9,7 +9,7 @@ interface AdminPanelProps {
   onSessionChange: (session: OperationsSession) => void;
 }
 
-const localRoles = ['REPONEDOR', 'ENCARGADO', 'COMPRADOR', 'ADMINISTRADOR'];
+const localRoles = ['REPONEDOR', 'ENCARGADO', 'ADMINISTRADOR'];
 
 export default function AdminPanel({ session, onClose, onSessionChange }: AdminPanelProps) {
   const [users, setUsers] = useState<ManagedUser[]>([]);

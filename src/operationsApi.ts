@@ -1,4 +1,4 @@
-import { ManagedUser, OperationsSession, RemoteTask, StoreAccess, SupervisionReport } from './types';
+import { ActivePurchase, ManagedUser, OperationsSession, RemoteTask, StoreAccess, SupervisionReport } from './types';
 
 const defaultOperationsApiUrl = 'https://script.google.com/macros/s/AKfycbyD3cOqs5bU6hX1W5hu0vYyuFWptfQn01tNQ1AmwNayaXrlOEKDr8wGtiqJkLwJRACZQA/exec';
 const operationsApiUrl = import.meta.env.VITE_OPERATIONS_API_URL || defaultOperationsApiUrl;
@@ -90,6 +90,15 @@ export const operationsApi = {
     alreadyMarked?: boolean;
     purchaseRequestCreated?: boolean;
   }>('tasks.outOfStock', { taskId, expectedVersion, actorId }),
+  listPurchases: (localId: string) => request<{ purchases: ActivePurchase[]; store: StoreAccess }>('purchases.list', { localId }),
+  orderPurchase: (purchaseRequestId: string, localId: string, actorId: string) => request<{
+    purchase: ActivePurchase;
+    alreadyOrdered?: boolean;
+  }>('purchases.order', { purchaseRequestId, localId, actorId }),
+  receivePurchase: (purchaseRequestId: string, localId: string, actorId: string, quantity?: string) => request<{
+    purchase: ActivePurchase;
+    alreadyReceived?: boolean;
+  }>('purchases.receive', { purchaseRequestId, localId, actorId, quantity }),
   getSupervisionReport: (payload: { localId?: string; from: string; to: string; userId?: string }) => request<SupervisionReport>(
     'reports.supervision', payload,
   ),

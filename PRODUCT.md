@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Reponedores que registran y completan reposiciones desde el telefono, encargados y compradores de cada local, administradores locales y un superadministrador con acceso global.
+Reponedores que registran y completan reposiciones desde el telefono, encargados y administradores de cada local, y un superadministrador con acceso global. El reponedor solo recepciona y marca faltantes; la compra la registran encargado, administrador o superadmin.
 
 ## Product Purpose
 
@@ -28,8 +28,11 @@ Varios funcionarios trabajan individualmente en distintos locales. El catalogo o
 - El primer ingreso solicita un codigo de activacion de un solo uso y la creacion de un PIN de seis digitos.
 - Un superadministrador genera codigos para altas y habilita el reinicio de PIN.
 - Los permisos habituales se asignan por local; SUPERADMIN puede consultar todos los locales.
-- Superadmin, encargados y administradores consultan supervision operativa por periodo, local y funcionario.
-- La interfaz debe funcionar bien en telefonos y conservar el catalogo XLSX actual.
+ - Superadmin, encargados y administradores consultan supervision operativa por periodo, local y funcionario.
++ - Superadmin, encargados y administradores consultan supervision operativa por periodo, local y funcionario.
++ - El reponedor no compra: unicamente marca faltantes y recepciona mercaderia; encargado, administrador y superadmin registran la compra.
++ - Al recibir la compra, la tarea vuelve automaticamente a la lista de reposicion.
+ - La interfaz debe funcionar bien en telefonos y conservar el catalogo XLSX actual.
 
 ## Evidence on Hand
 

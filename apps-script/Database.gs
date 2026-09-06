@@ -26,7 +26,7 @@ const DB_SCHEMA = {
   usuarios_locales: {
     headers: ['id', 'usuario_id', 'local_id', 'rol', 'activo', 'creado_en', 'actualizado_en'],
     validations: {
-      rol: ['REPONEDOR', 'ENCARGADO', 'COMPRADOR', 'ADMINISTRADOR'],
+      rol: ['REPONEDOR', 'ENCARGADO', 'ADMINISTRADOR'],
       activo: ['SI', 'NO'],
     },
   },

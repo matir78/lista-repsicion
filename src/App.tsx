@@ -1,8 +1,9 @@
 import { KeyboardEvent, useDeferredValue, useEffect, useRef, useState } from 'react';
-import { AlertCircle, BarChart3, Barcode, Check, LogOut, PackageOpen, PackageX, Plus, RefreshCw, Search, Settings } from 'lucide-react';
+import { AlertCircle, BarChart3, Barcode, Check, LogOut, PackageOpen, PackageX, Plus, RefreshCw, Search, Settings, ShoppingCart } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import AdminPanel from './AdminPanel';
 import LoginScreen from './LoginScreen';
+import PurchasesPanel from './PurchasesPanel';
 import ReportsPanel from './ReportsPanel';
 import { clearSessionToken, getSessionToken, operationsApi, OperationsApiError, operationsApiConfigured } from './operationsApi';
 import { CatalogProduct, CatalogResponse, OperationsSession, RemoteTask } from './types';
@@ -32,6 +33,8 @@ export default function App() {
   const [selectedStoreId, setSelectedStoreId] = useState('');
   const [showAdmin, setShowAdmin] = useState(false);
   const [showReports, setShowReports] = useState(false);
+  const [showPurchases, setShowPurchases] = useState(false);
+  const [pendingPurchasesCount, setPendingPurchasesCount] = useState(0);
   const [items, setItems] = useState<RemoteTask[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [operationError, setOperationError] = useState('');
@@ -164,11 +167,13 @@ export default function App() {
   useEffect(() => {
     if (authStatus !== 'SIGNED_IN' || !selectedStoreId) {
       setItems([]);
+      setPendingPurchasesCount(0);
       return;
     }
     localStorage.setItem(selectedStoreKey, selectedStoreId);
     selectedStoreIdRef.current = selectedStoreId;
     setItems([]);
+    setPendingPurchasesCount(0);
     let active = true;
 
     const refresh = async (quiet = false) => {
@@ -180,8 +185,14 @@ export default function App() {
           setItems(mergePendingTasks(response.tasks));
           setOperationError('');
         }
+        const purchases = await operationsApi.listPurchases(selectedStoreId);
+        if (active) setPendingPurchasesCount(purchases.purchases.length);
       } catch (caught) {
-        if (active) handleApiFailure(caught);
+        if (active && caught instanceof OperationsApiError && caught.code === 'FORBIDDEN') {
+          if (active) setPendingPurchasesCount(0);
+        } else if (active) {
+          handleApiFailure(caught);
+        }
       } finally {
         if (active && !quiet) setLoadingItems(false);
       }
@@ -431,6 +442,23 @@ export default function App() {
 
   const selectedStore = session.stores.find((store) => store.id === selectedStoreId);
 
+  if (showPurchases && selectedStore) {
+    return (
+      <PurchasesPanel
+        store={selectedStore}
+        actorId={session.user.id}
+        canOrder={['ENCARGADO', 'ADMINISTRADOR', 'SUPERADMIN'].includes(selectedStore.role)}
+        onClose={() => setShowPurchases(false)}
+        onReceived={() => refreshTasks(true)}
+        onAuthFailure={() => {
+          clearSessionToken();
+          setSession(null);
+          setAuthStatus('SIGNED_OUT');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-neutral-100 font-sans text-neutral-900 sm:p-6 md:p-8">
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col overflow-hidden bg-white sm:min-h-[85vh] sm:rounded-3xl sm:border sm:border-neutral-200 sm:shadow-xl">
@@ -441,6 +469,10 @@ export default function App() {
               <p className="mt-1 truncate text-sm text-blue-100">{session.user.name}</p>
             </div>
             <div className="flex shrink-0 gap-1">
+              <button onClick={() => setShowPurchases(true)} className="relative rounded-xl p-2.5 text-blue-100 hover:bg-white/10 hover:text-white" aria-label="Ver compras">
+                <ShoppingCart size={20} />
+                {pendingPurchasesCount > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-5 w-5 place-items-center rounded-full bg-amber-400 text-[11px] font-bold text-blue-900">{pendingPurchasesCount}</span>}
+              </button>
               {reportStores.length > 0 && (
                 <button onClick={() => setShowReports(true)} className="rounded-xl p-2.5 text-blue-100 hover:bg-white/10 hover:text-white" aria-label="Ver supervision"><BarChart3 size={20} /></button>
               )}

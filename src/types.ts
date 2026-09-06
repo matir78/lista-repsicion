@@ -96,6 +96,24 @@ export interface SupervisionIncident {
   dataIssue?: string | null;
 }
 
+export interface ActivePurchase {
+  purchaseRequestId: string;
+  taskId: string;
+  localId: string;
+  description: string;
+  articleCode: string | null;
+  barcode: string | null;
+  quantity: string | null;
+  unit: string;
+  status: string;
+  priority: string;
+  supplier: string;
+  requestedBy: string;
+  requestedAt: string | null;
+  canOrder: boolean;
+  canReceive: boolean;
+}
+
 export interface PendingPurchase {
   purchaseRequestId: string;
   taskId: string;
